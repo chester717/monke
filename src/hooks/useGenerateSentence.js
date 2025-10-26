@@ -2,77 +2,159 @@ import { useCallback } from "react";
 
 export const useGenerateSentence = () => {
   const nouns = [
-    "dog",
-    "car",
-    "house",
-    "tree",
-    "computer",
-    "book",
-    "city",
     "cat",
+    "dog",
+    "teacher",
+    "car",
     "river",
+    "child",
+    "bird",
+    "computer",
+    "garden",
+    "player",
+    "music",
     "mountain",
+    "ocean",
+    "pencil",
+    "house",
+    "city",
+    "forest",
+    "clock",
+    "cloud",
+    "book",
   ];
+
   const verbs = [
-    "run",
-    "walk",
-    "jump",
-    "swim",
-    "read",
-    "write",
-    "drive",
-    "fly",
-    "sing",
-    "dance",
+    "runs",
+    "jumps",
+    "reads",
+    "writes",
+    "sleeps",
+    "drives",
+    "plays",
+    "flies",
+    "laughs",
+    "thinks",
+    "walks",
+    "talks",
+    "builds",
+    "creates",
+    "learns",
+    "teaches",
+    "watches",
+    "draws",
+    "moves",
+    "explores",
   ];
+
   const adjectives = [
-    "quick",
-    "lazy",
     "happy",
-    "sad",
+    "tall",
+    "fast",
     "bright",
-    "dark",
-    "loud",
-    "silent",
-    "warm",
-    "cold",
+    "lazy",
+    "quiet",
+    "strong",
+    "gentle",
+    "curious",
+    "clever",
+    "brave",
+    "friendly",
+    "shy",
+    "energetic",
+    "calm",
+    "wise",
+    "colorful",
+    "serious",
+    "young",
+    "old",
   ];
+
   const adverbs = [
     "quickly",
     "slowly",
-    "happily",
-    "sadly",
-    "brightly",
-    "darkly",
     "loudly",
-    "silently",
-    "warmly",
-    "coldly",
+    "quietly",
+    "eagerly",
+    "gracefully",
+    "carefully",
+    "boldly",
+    "softly",
+    "suddenly",
+    "rarely",
+    "often",
+    "usually",
+    "barely",
+    "almost",
+    "truly",
+    "nearly",
+    "simply",
+    "honestly",
+    "finally",
   ];
 
-  const randomizor = (array) => array[Math.floor(Math.random() * array.length)];
+  const prepositions = [
+    "under",
+    "above",
+    "across",
+    "behind",
+    "beside",
+    "between",
+    "through",
+    "around",
+    "near",
+    "inside",
+  ];
+
+  const rand = (array) => array[Math.floor(Math.random() * array.length)];
+
+  const capitalize = (str) => str.charAt(0).toUpperCase() + str.slice(1);
 
   const generateSentence = useCallback(() => {
     const templates = [
-      `The ${randomizor(adjectives)} ${randomizor(nouns)} likes to ${randomizor(
-        verbs
-      )} ${randomizor(adverbs)}.`,
-      `A ${randomizor(nouns)} can ${randomizor(verbs)} very ${randomizor(
+      // Simple compound sentences
+      `The ${rand(adjectives)} ${rand(nouns)} ${rand(verbs)} ${rand(
         adverbs
-      )} when it is ${randomizor(adjectives)}.`,
-      `In the ${randomizor(adjectives)} ${randomizor(
+      )} ${rand(prepositions)} the ${rand(adjectives)} ${rand(
         nouns
-      )}, we often see people ${randomizor(verbs)}ing ${randomizor(adverbs)}.`,
-      `Every ${randomizor(nouns)} has a unique way to ${randomizor(
+      )}, and then ${rand(verbs)} again before sunset.`,
+      `After a long day, the ${rand(nouns)} ${rand(adverbs)} ${rand(
         verbs
-      )} that is both ${randomizor(adjectives)} and ${randomizor(adverbs)}.`,
-      `When the ${randomizor(adjectives)} ${randomizor(
-        nouns
-      )} decides to ${randomizor(verbs)}, it does so very ${randomizor(
+      )} while the ${rand(adjectives)} ${rand(nouns)} ${rand(verbs)} nearby.`,
+
+      // Slightly narrative-style
+      `${capitalize(rand(nouns))} ${rand(verbs)} ${rand(adverbs)} ${rand(
+        prepositions
+      )} a ${rand(adjectives)} ${rand(nouns)}, trying to ${rand(
+        verbs
+      )} before the ${rand(nouns)} ${rand(verbs)} again.`,
+      `Every morning, the ${rand(adjectives)} ${rand(nouns)} ${rand(
+        verbs
+      )} ${rand(adverbs)} as the ${rand(nouns)} ${rand(
+        verbs
+      )} in the distance.`,
+
+      // Descriptive pattern
+      `A ${rand(adjectives)} ${rand(nouns)} ${rand(verbs)} ${rand(
         adverbs
-      )}.`,
+      )} ${rand(prepositions)} the ${rand(nouns)}, ${rand(
+        verbs
+      )} again as the ${rand(adjectives)} ${rand(nouns)} watches.`,
+      `Sometimes the ${rand(nouns)} ${rand(verbs)} ${rand(adverbs)} ${rand(
+        prepositions
+      )} the ${rand(adjectives)} ${rand(nouns)} and ${rand(
+        verbs
+      )} until night.`,
+
+      // Time/conditional sentence
+      `When the ${rand(nouns)} ${rand(verbs)} ${rand(adverbs)}, a ${rand(
+        adjectives
+      )} ${rand(nouns)} ${rand(verbs)} ${rand(prepositions)} the ${rand(
+        adjectives
+      )} ${rand(nouns)} without stopping.`,
     ];
     return templates[Math.floor(Math.random() * templates.length)];
-  });
+  }, []);
+
   return generateSentence;
 };
