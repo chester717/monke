@@ -8,19 +8,24 @@ import {
   Heading,
   HStack,
   Progress,
+  keyframes,
 } from "@chakra-ui/react";
+import { RepeatIcon } from "@chakra-ui/icons";
 import { database as db, auth } from "../firebase";
 import { ref, set, onValue, onDisconnect, update } from "firebase/database";
 import { v4 as uuidv4 } from "uuid";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import "../hooks/useGenerateSentence"
 
-const sampleTexts = [
-  "But when a man suspects any wrong, it sometimes happens that if he be already involved in the matter, he insensibly strives to cover up his suspicions even from himself.",
-  "Some enchanted evening, you may see a stranger. You may see a stranger across a crowded room, and somehow you know, you know even then, that somewhere you'll see her again and again.",
-  "Keep in mind that many people have died for their beliefs; it's actually quite common. The real courage is in living and suffering for what you believe.",
-];
+const pulse = keyframes`
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+  100% { opacity: 1; transform: scale(1); }
+`;
+
 
 const TypingRace = () => {
+  const [startTime, setStartTime] = useState(null);
   const [text, setText] = useState("");
   const [userInput, setUserInput] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -30,13 +35,64 @@ const TypingRace = () => {
   const [winner, setWinner] = useState(null);
   const [playerName, setPlayerName] = useState("");
   const [progress, setProgress] = useState(0);
-  const [countdown, setCountdown] = useState(null);
+  const [cd, setCd] = useState(3);
+  const [gameTimeLeft, setGameTimeleft] = useState(null);
 
+  const timerRef = useRef(null);
   const inputRef = useRef(null);
   const uid = useRef(uuidv4()).current;
+  const generateSentence = useGenerateSentence();
 
-  const randomizedText =
-    sampleTexts[Math.floor(Math.random() * sampleTexts.length)];
+
+  // Countdown pulse effect
+  useEffect(() => {
+    if (status === "running") {
+      setGameTimeleft(60);
+      setStartTime(Date.now());
+      timerRef.current = setInterval(() => {
+        setGameTimeleft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            if (currentRoom) {
+              const roomRef = ref(db, `rooms/${currentRoom}`);
+              update(roomRef, { status: "finished", timerExpired: true });
+            }
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [status, currentRoom]);
+
+  // Determine winner when finished
+  useEffect(() => {
+    if (!currentRoom) return;
+    if (status === "finished") {
+      let winnerId = null;
+      let bestScore = -1;
+      let bestAccuracy = -1;
+      Object.entries(players).forEach(([id, p]) => {
+        if (p.wpm && p.accuracy) {
+          if (
+            p.wpm > bestScore ||
+            (p.wpm === bestScore && p.accuracy > bestAccuracy)
+          ) {
+            bestScore = p.wpm;
+            bestAccuracy = p.accuracy;
+            winnerId = id;
+          }
+        }
+      });
+      if (winner !== winnerId) {
+        const roomRef = ref(db, `rooms/${currentRoom}`);
+        update(roomRef, { winner: winnerId });
+      }
+    }
+  }, [status, players, currentRoom, winner]);
 
   // Firebase Auth
   useEffect(() => {
@@ -51,32 +107,42 @@ const TypingRace = () => {
   // Push progress
   const pushProgress = (room, progress) => {
     const roomRef = ref(db, `rooms/${room}/players/${uid}`);
-    set(roomRef, {
+    let stats = {
       name: playerName || `Player-${uid.slice(0, 5)}`,
       progress,
       finished: progress >= 100,
-    });
+    };
 
-    if (progress >= 100) {
-      const roomMetaRef = ref(db, `rooms/${room}`);
-      update(roomMetaRef, {
-        status: "finished",
-        winner: uid,
-      });
+    if (progress >= 100 && startTime) {
+      const finishTime = Date.now();
+      const timeTaken = (finishTime - startTime) / 1000;
+      const wordsTyped = userInput.trim().split(/\s+/).length;
+      const wpm = (wordsTyped / timeTaken) * 60;
+      let correctChars = 0;
+      for (let i = 0; i < userInput.length; i++) {
+        if (userInput[i] === text[i]) correctChars++;
+      }
+      const accuracy = text.length
+        ? Math.round((correctChars / text.length) * 100)
+        : 0;
+      stats = { ...stats, wpm: Math.round(wpm), accuracy };
     }
+    set(roomRef, stats);
   };
 
+  // Handle typing input
   const handleChange = (e) => {
     const val = e.target.value;
     setUserInput(val);
     const correctSoFar = text.slice(0, val.length);
     if (val === correctSoFar) {
       const newProgress = Math.min((val.length / text.length) * 100, 100);
+      setProgress(newProgress);
       if (currentRoom) pushProgress(currentRoom, newProgress);
     }
   };
 
-  // Reset input (not the whole room)
+  // Reset input
   const handleRestart = () => {
     setUserInput("");
     setProgress(0);
@@ -89,7 +155,7 @@ const TypingRace = () => {
     const id = uuidv4().slice(0, 6).toUpperCase();
     setCurrentRoom(id);
     set(ref(db, `rooms/${id}`), {
-      text: randomizedText,
+      text: generateSentence(),
       status: "waiting",
       players: {},
       winner: null,
@@ -97,7 +163,7 @@ const TypingRace = () => {
     joinRoom(id);
   };
 
-  // Join an existing room
+  // Join existing room
   const joinRoom = (id) => {
     if (!id) return;
     setCurrentRoom(id);
@@ -127,68 +193,114 @@ const TypingRace = () => {
       setStatus(data.status);
       setWinner(data.winner || null);
       setPlayers(data.players || {});
+      if (data.cd !== undefined) setCd(data.cd);
     });
     return () => unsubscribe();
   }, [currentRoom]);
 
-  // Load text when mounted
+  // Load text on mount
   useEffect(() => {
-    setText(randomizedText);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setText(generateSentence());
   }, []);
 
+  // Start countdown if all ready
   useEffect(() => {
     if (!currentRoom) return;
     if (Object.keys(players).length > 1) {
       const allReady = Object.values(players).every((p) => p.ready);
       if (allReady && status === "waiting") {
-        //start countdown
         const roomRef = ref(db, `rooms/${currentRoom}`);
         update(roomRef, { status: "countdown" });
 
-        let cd = 3;
+        let count = 3;
         const interval = setInterval(() => {
-          cd -= 1;
-          if (cd > 0) {
-            update(roomRef, { cd });
-          } else {
+          count -= 1;
+          setCd(count);
+          if (count <= 0) {
             update(roomRef, { status: "running", cd: null });
             clearInterval(interval);
+          } else {
+            update(roomRef, { cd: count });
           }
         }, 1000);
 
-        // Cleanup interval on unmount
         return () => clearInterval(interval);
+      }
+
+      const allFinished =
+        Object.values(players).length > 1 &&
+        Object.values(players).every((p) => p.progress >= 100);
+
+      if (status === "running" && allFinished) {
+        const roomRef = ref(db, `rooms/${currentRoom}`);
+        update(roomRef, { status: "finished", finishedEarly: true });
       }
     }
   }, [currentRoom, players, status]);
 
   return (
     <VStack
-      spacing={4}
-      border="1px solid"
-      borderColor="gray.200"
-      p={4}
-      borderRadius="md"
+      spacing={6}
+      minH="100vh"
+      w="100%"
+      bg="gray.900"
+      color="gray.100"
+      p={8}
+      align="center"
+      justify="center"
     >
-      <Heading size="md">Realtime Typing Race</Heading>
+      {/* Heading */}
+      <Heading
+        size="xl"
+        bgGradient="linear(to-r, teal.400, blue.500)"
+        bgClip="text"
+        fontWeight="bold"
+      >
+        Type Racer
+      </Heading>
 
-      <Text fontSize="sm" color="gray.600">
-        {currentRoom
-          ? `In Room: ${currentRoom} | Players: ${Object.keys(players).length}`
-          : "Not in a room"}
+      {/* Time */}
+      {status === "running" && (
+        <Text fontSize="lg" color="red.500" fontWeight="bold">
+          Time Left: {gameTimeLeft}s
+        </Text>
+      )}
+
+      {/* Room info */}
+      <Text fontSize="md" color="gray.400" mb={4}>
+        {currentRoom ? (
+          <HStack spacing={4}>
+            <Box px={3} py={1} bg="gray.800" borderRadius="md">
+              Room: {currentRoom}
+            </Box>
+            <Box px={3} py={1} bg="gray.800" borderRadius="md">
+              Players: {Object.keys(players).length}
+            </Box>
+          </HStack>
+        ) : (
+          "Join a room to start racing"
+        )}
       </Text>
 
-      <HStack w="100%">
+      {/* Create / Join */}
+      <HStack w="100%" maxW="900px" spacing={4}>
         <Input
           placeholder="Your Name"
           value={playerName}
           onChange={(e) => setPlayerName(e.target.value)}
+          bg="gray.800"
+          border="none"
+          _focus={{ bg: "gray.700" }}
+          _hover={{ bg: "gray.700" }}
         />
         <Input
-          placeholder="Room ID (or leave blank to create)"
+          placeholder="Room ID"
           value={roomId}
           onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+          bg="gray.800"
+          border="none"
+          _focus={{ bg: "gray.700" }}
+          _hover={{ bg: "gray.700" }}
         />
         <Button onClick={createRoom}>Create</Button>
         <Button onClick={() => joinRoom(roomId)} colorScheme="teal">
@@ -196,81 +308,183 @@ const TypingRace = () => {
         </Button>
       </HStack>
 
+      {/* Text area with progress */}
       <Box
-        p={3}
-        border="1px solid lightgray"
-        borderRadius="md"
-        bg="gray.50"
-        fontFamily="monospace"
-        fontSize="lg"
-        minH="100px"
+        p={6}
+        bg="gray.800"
+        borderRadius="xl"
+        fontFamily="JetBrains Mono, monospace"
+        fontSize="xl"
+        minH="150px"
         w="100%"
+        maxW="900px"
         userSelect="none"
+        position="relative"
+        mb={4}
       >
-        {text.split("").map((char, index) => {
-          let color = "gray.700";
-          if (index < userInput.length) {
-            if (userInput[index] === char) {
-              color = "green.500";
-            } else {
-              color = "red.500";
+        <Box
+          position="absolute"
+          top={0}
+          left={0}
+          right={0}
+          h="4px"
+          bg="gray.700"
+          borderTopRadius="xl"
+          overflow="hidden"
+        >
+          <Box
+            h="100%"
+            w={`${progress}%`}
+            bg="teal.500"
+            transition="width 0.3s ease-out"
+          />
+        </Box>
+
+        <Box letterSpacing="wide" lineHeight="1.8">
+          {text.split("").map((char, index) => {
+            let color = "gray.500";
+            let bg = "transparent";
+            if (index < userInput.length) {
+              if (userInput[index] === char) {
+                color = "teal.300";
+              } else {
+                color = "red.400";
+                bg = "rgba(255, 0, 0, 0.1)";
+              }
             }
-          }
-          return (
-            <Text as="span" key={index} color={color} >
-              {char}
-            </Text>
-          );
-        })}
+            return (
+              <Text as="span" key={index} color={color} bg={bg} px="0.5px">
+                {char}
+              </Text>
+            );
+          })}
+        </Box>
       </Box>
 
+      {/* Input */}
       <Input
         ref={inputRef}
         value={userInput}
         onChange={handleChange}
-        placeholder="Start typing..."
+        placeholder={
+          status === "running" ? "Type here..." : "Waiting to start..."
+        }
         disabled={status !== "running"}
+        bg="gray.800"
+        border="none"
+        borderRadius="lg"
+        p={4}
+        fontSize="lg"
+        w="100%"
+        maxW="900px"
+        _focus={{
+          outline: "none",
+          boxShadow: "0 0 0 2px teal.500",
+          bg: "gray.700",
+        }}
+        _disabled={{
+          opacity: 0.7,
+          cursor: "not-allowed",
+        }}
       />
 
-      <Text>
-        Room: {currentRoom || "—"} | Status: {status} | Players:{" "}
-        {Object.keys(players).length}
-      </Text>
-
-      {status === "finished" && winner && (
-        <Text color="teal.600" fontWeight="bold">
-          Winner: {players[winner]?.name || "Unknown"}
-        </Text>
-      )}
-
-      <VStack w="100%" align="stretch">
+      {/* Player progress bars */}
+      <VStack w="100%" maxW="900px" spacing={4}>
         {Object.entries(players).map(([id, p]) => (
-          <Box key={id}>
-            <Text>{p.name}</Text>
-            <Progress value={p.progress} colorScheme="teal" />
+          <Box
+            key={id}
+            w="100%"
+            bg="gray.800"
+            p={4}
+            borderRadius="lg"
+            position="relative"
+            overflow="hidden"
+          >
+            <HStack justify="space-between" mb={2}>
+              <Text fontWeight="medium">{p.name}</Text>
+              <Text color="gray.400">{Math.round(p.progress)}%</Text>
+            </HStack>
+            <Progress
+              value={p.progress}
+              size="sm"
+              borderRadius="full"
+              colorScheme="teal"
+              bg="gray.700"
+              sx={{
+                "& > div": {
+                  transition: "width 0.3s ease-out",
+                },
+              }}
+            />
           </Box>
         ))}
       </VStack>
 
-      <HStack>
+      {/* Buttons & Countdown */}
+      <HStack spacing={4} mt={4}>
         {status === "waiting" && (
-          <Button onClick={markReady} colorScheme="blue" mt={2}>
-            I'm Ready
+          <Button
+            onClick={markReady}
+            bg="teal.500"
+            color="white"
+            px={8}
+            py={6}
+            fontSize="lg"
+            _hover={{ bg: "teal.600" }}
+            _active={{ bg: "teal.700" }}
+          >
+            Ready to Race
           </Button>
         )}
 
         {status === "countdown" && (
-          <Text fontSize="2xl" fontWeight="bold">
-            Starting in: {players[Object.keys(players)[0]]?.countdown || 3}
+          <Text
+            fontSize="6xl"
+            fontWeight="bold"
+            color="teal.400"
+            animation={`${pulse} 1s infinite`}
+          >
+            {cd || 3}
           </Text>
+        )}
+
+        {status === "running" && (
+          <Button
+            onClick={handleRestart}
+            bg="gray.700"
+            color="white"
+            px={6}
+            _hover={{ bg: "gray.600" }}
+            leftIcon={<RepeatIcon />}
+          >
+            Restart
+          </Button>
         )}
       </HStack>
 
-      <Button onClick={handleRestart} mt={2}>
-        Reset My Input
-      </Button>
+      {/* Game results */}
+      {status === "finished" && (
+        <Box>
+          <Text color="teal.400" fontSize="xl" fontWeight="bold">
+            {winner
+              ? `🏆 Winner: ${players[winner]?.name || "Unknown"}`
+              : "No winner"}
+          </Text>
+          <VStack align="start" mt={2}>
+            {Object.entries(players).map(([id, p]) => (
+              <Text key={id}>
+                {p.name}:{" "}
+                {p.finished
+                  ? `WPM: ${p.wpm || 0}, Accuracy: ${p.accuracy || 0}%`
+                  : "Not finished"}
+              </Text>
+            ))}
+          </VStack>
+        </Box>
+      )}
     </VStack>
   );
 };
 
 export default TypingRace;
+p;
